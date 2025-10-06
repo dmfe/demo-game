@@ -1,3 +1,4 @@
+use std::fs;
 use macroquad::prelude::*;
 use macroquad::rand::ChooseRandom;
 
@@ -47,6 +48,10 @@ async fn main() {
     let mut squares: Vec<Shape> = vec![];
     let mut bullets: Vec<Shape> = vec![];
     let mut last_shot_time: f64 = 0.0;
+    let mut score: u32 = 0;
+    let mut high_score: u32 = fs::read_to_string("highscore.dat")
+        .map_or(Ok(0), |i| i.parse::<u32>())
+        .unwrap_or(0);
     let mut player_circle = Shape {
         size: 32.0,
         speed: MOVEMENT_SPEED,
@@ -61,14 +66,6 @@ async fn main() {
     loop {
         clear_background(BLUE);
 
-        let fps_text = format!("FPS: {}", get_fps());
-        draw_text(
-            &fps_text,
-            20.0,
-            20.0,
-            30.0,
-            RED
-        );
 
         if !is_game_over {
             let delta_time = get_frame_time();
@@ -125,6 +122,21 @@ async fn main() {
                 bullet.y -= bullet.speed * delta_time;
             }
 
+            // Check for collisions
+            if squares.iter().any(|square| player_circle.collides_with_square(square)) {
+                is_game_over = true;
+            }
+            for square in squares.iter_mut() {
+                for bullet in bullets.iter_mut() {
+                    if bullet.collides_with(square) {
+                        bullet.collided = true;
+                        square.collided = true;
+                        score += square.size.round() as u32;
+                        high_score = high_score.max(score);
+                    }
+                }
+            }
+
             // Remove shapes outside of the screen
             squares.retain(|square| square.y < screen_height() + square.size);
             bullets.retain(|bullet| bullet.y > 0.0 - bullet.size);
@@ -132,27 +144,6 @@ async fn main() {
             // Remove collided shaped
             squares.retain(|square| !square.collided);
             bullets.retain(|bullet| !bullet.collided);
-        }
-
-        // Check for collisions
-        if squares.iter().any(|square| player_circle.collides_with_square(square)) {
-            is_game_over = true;
-        }
-        for square in squares.iter_mut() {
-            for bullet in bullets.iter_mut() {
-                if bullet.collides_with(square) {
-                    bullet.collided = true;
-                    square.collided = true;
-                }
-            }
-        }
-
-        if is_game_over && is_key_pressed(KeyCode::Space) {
-            squares.clear();
-            bullets.clear();
-            player_circle.x = screen_width() / 2.0;
-            player_circle.y = screen_height() / 2.0;
-            is_game_over = false;
         }
 
         // Draw everything
@@ -171,16 +162,66 @@ async fn main() {
         }
 
         if is_game_over {
-            let text = "GAME OVER!!!";
-            let text_dimensions = measure_text(text, None, 50, 1.0);
+            let game_over_text = "GAME OVER!";
+            let go_text_dimensions = measure_text(game_over_text, None, 50, 1.0);
             draw_text(
-                text,
-                screen_width() / 2.0 - text_dimensions.width / 2.0,
-                screen_height() / 2.0  - text_dimensions.height / 2.0 + text_dimensions.offset_y,
+                game_over_text,
+                screen_width() / 2.0 - go_text_dimensions.width / 2.0,
+                screen_height() / 2.0 - go_text_dimensions.height / 2.0 + go_text_dimensions.offset_y,
                 50.0,
                 RED
             );
+
+            if high_score > 0 && score == high_score {
+                fs::write("highscore.dat", high_score.to_string()).ok();
+
+                let congratulation_text = "Congratulations! You've achived the high score!";
+                let co_text_dimensions = measure_text(congratulation_text, None, 50, 1.0);
+                draw_text(
+                    congratulation_text,
+                    screen_width() / 2.0 - co_text_dimensions.width / 2.0,
+                    screen_height() / 2.0 +
+                        go_text_dimensions.height + go_text_dimensions.offset_y -
+                        co_text_dimensions.height / 2.0 + co_text_dimensions.offset_y,
+                    50.0,
+                    RED
+                );
+            }
         }
+
+        if is_game_over && is_key_pressed(KeyCode::Space) {
+            squares.clear();
+            bullets.clear();
+            player_circle.x = screen_width() / 2.0;
+            player_circle.y = screen_height() / 2.0;
+            score = 0;
+            is_game_over = false;
+        }
+
+        draw_text(
+            format!("FPS: {}", get_fps()).as_str(),
+            10.0,
+            20.0,
+            25.0,
+            RED
+        );
+
+        draw_text(
+            format!("Score: {}", score).as_str(),
+            10.0,
+            45.0,
+            25.0,
+            WHITE
+        );
+        let high_score_text = format!("High Score: {}", high_score);
+        let text_dimensions = measure_text(high_score_text.as_str(), None, 25, 1.0);
+        draw_text(
+            high_score_text.as_str(),
+            screen_width() - text_dimensions.width - 10.0,
+            45.0,
+            25.0,
+            WHITE
+        );
 
         next_frame().await
     }
