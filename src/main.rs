@@ -2,6 +2,23 @@ use std::fs;
 use macroquad::prelude::*;
 use macroquad::rand::ChooseRandom;
 
+const FRAGMENT_SHADER: &str = include_str!("starfield-shader.glsl");
+const VERTEX_SHADER: &str = "#version 100
+attribute vec3 position;
+attribute vec2 texcoord;
+attribute vec4 color0;
+varying float iTime;
+
+uniform mat4 Model;
+uniform mat4 Projection;
+uniform vec4 _Time;
+
+void main() {
+    gl_Position = Projection * Model * vec4(position, 1);
+    iTime = _Time.x;
+}
+";
+
 struct Shape {
     size: f32,
     speed: f32,
@@ -77,10 +94,10 @@ fn draw_playing_scene(player_circle: &Shape, bullets: &Vec<Shape>, squares: &Vec
     );
 }
 
-#[macroquad::main("Demo Game")]
+#[macroquad::main("Space Warior")]
 async fn main() {
     const MOVEMENT_SPEED: f32 = 200.0;
-    const RELOAD_TIME_SECONDS: f64 = 0.5;
+    const RELOAD_TIME_SECONDS: f64 = 0.1;
 
     let square_colors = vec![ORANGE, RED, PURPLE, GREEN];
 
@@ -103,8 +120,42 @@ async fn main() {
 
     rand::srand(miniquad::date::now() as u64);
 
+    let i_resolution: [f32; 2] = [screen_width(), screen_height()];
+    let mut direction_modifier: f32 = 0.0;
+    let render_target = render_target(320, 150);
+    render_target.texture.set_filter(FilterMode::Nearest);
+    let material = load_material(
+        ShaderSource::Glsl {
+            vertex: VERTEX_SHADER,
+            fragment: FRAGMENT_SHADER
+        },
+        MaterialParams {
+            uniforms: vec![
+                UniformDesc::new("direction_modifier", UniformType::Float1),
+                UniformDesc::new("iResolution", UniformType::Float2),
+            ],
+            ..Default::default()
+        }
+    )
+    .unwrap();
+
     loop {
-        clear_background(BLUE);
+        clear_background(BLACK);
+
+        material.set_uniform("direction_modifier", direction_modifier);
+        material.set_uniform("iResolution", i_resolution);
+        gl_use_material(&material);
+        draw_texture_ex(
+            &render_target.texture,
+            0.,
+            0.,
+            WHITE,
+            DrawTextureParams {
+                dest_size: Some(vec2(screen_width(), screen_height())),
+                ..Default::default()
+            }
+        );
+        gl_use_default_material();
 
         match game_state {
             GameState::MainMenu => {
@@ -119,6 +170,16 @@ async fn main() {
                     score = 0;
                     game_state = GameState::Playing;
                 }
+
+                let title_text = "SPACE WARIOR";
+                let title_text_dimensions = measure_text(title_text, None, 100, 1.0);
+                draw_text(
+                    title_text,
+                    screen_width() / 2.0 - title_text_dimensions.width / 2.0,
+                    200.0,
+                    100.0,
+                    WHITE
+                );
 
                 let text = "Press space";
                 let text_dimensions = measure_text(text, None, 50, 1.0);
@@ -135,9 +196,11 @@ async fn main() {
 
                 if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) {
                     player_circle.x += player_circle.speed * delta_time;
+                    direction_modifier += 0.05 * delta_time;
                 }
                 if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) {
                     player_circle.x -= player_circle.speed * delta_time;
+                    direction_modifier -= 0.05 * delta_time;
                 }
                 if is_key_down(KeyCode::Down) || is_key_down(KeyCode::S) {
                     player_circle.y += player_circle.speed * delta_time;
@@ -168,7 +231,7 @@ async fn main() {
                 player_circle.y = clamp(player_circle.y, 0.0 + player_circle.size, screen_height() - player_circle.size);
 
                 // Ganerate a new square
-                if rand::gen_range(0, 99) >= 70 {
+                if rand::gen_range(0, 99) >= 80 {
                     let size = rand::gen_range(36.0, 84.0);
                     squares.push(Shape {
                         size: size,
@@ -247,6 +310,9 @@ async fn main() {
                 if is_key_pressed(KeyCode::Escape) {
                     game_state = GameState::MainMenu;
                 }
+                
+                // Draw playing scene
+                draw_playing_scene(&player_circle, &bullets, &squares, score, high_score);
 
                 let game_over_text = "GAME OVER!";
                 let go_text_dimensions = measure_text(game_over_text, None, 50, 1.0);
