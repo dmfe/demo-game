@@ -1,6 +1,7 @@
 use std::fs;
 use macroquad::prelude::*;
 use macroquad::rand::ChooseRandom;
+use macroquad_particles::{self as particles, ColorCurve, Emitter, EmitterConfig};
 
 const FRAGMENT_SHADER: &str = include_str!("starfield-shader.glsl");
 const VERTEX_SHADER: &str = "#version 100
@@ -61,7 +62,14 @@ enum GameState {
     GameOver
 }
 
-fn draw_playing_scene(player_circle: &Shape, bullets: &Vec<Shape>, squares: &Vec<Shape>, score: u32, high_score: u32) {
+fn draw_playing_scene(
+    player_circle: &Shape,
+    bullets: &Vec<Shape>,
+    squares: &Vec<Shape>,
+    explosions: &mut Vec<(Emitter, Vec2)>,
+    score: u32,
+    high_score: u32
+) {
     draw_circle(player_circle.x, player_circle.y, player_circle.size / 2.0, player_circle.color);
     for bullet in bullets {
         draw_circle(bullet.x, bullet.y, bullet.size / 2.0, bullet.color);
@@ -74,6 +82,9 @@ fn draw_playing_scene(player_circle: &Shape, bullets: &Vec<Shape>, squares: &Vec
             square.size,
             square.color
         );
+    }
+    for (explosion, coords) in explosions.iter_mut() {
+        explosion.draw(*coords);
     }
 
     draw_text(
@@ -94,6 +105,28 @@ fn draw_playing_scene(player_circle: &Shape, bullets: &Vec<Shape>, squares: &Vec
     );
 }
 
+fn particle_explosion() -> particles::EmitterConfig {
+    particles::EmitterConfig {
+        local_coords: false,
+        one_shot: true,
+        emitting: true,
+        lifetime: 0.6,
+        lifetime_randomness: 0.3,
+        explosiveness: 0.65,
+        initial_direction_spread: 2.0 * std::f32::consts::PI,
+        initial_velocity: 300.0,
+        initial_velocity_randomness: 0.8,
+        size: 3.0,
+        size_randomness: 0.3,
+        colors_curve: ColorCurve {
+            start: RED,
+            mid: ORANGE,
+            end: RED
+        },
+        ..Default::default()
+    }
+}
+
 #[macroquad::main("Space Warior")]
 async fn main() {
     const MOVEMENT_SPEED: f32 = 200.0;
@@ -104,11 +137,7 @@ async fn main() {
     let mut game_state = GameState::MainMenu;
     let mut squares: Vec<Shape> = vec![];
     let mut bullets: Vec<Shape> = vec![];
-    let mut last_shot_time: f64 = 0.0;
-    let mut score: u32 = 0;
-    let mut high_score: u32 = fs::read_to_string("highscore.dat")
-        .map_or(Ok(0), |i| i.parse::<u32>())
-        .unwrap_or(0);
+    let mut explosions: Vec<(Emitter, Vec2)> = vec![];
     let mut player_circle = Shape {
         size: 32.0,
         speed: MOVEMENT_SPEED,
@@ -117,6 +146,11 @@ async fn main() {
         collided: false,
         color: YELLOW
     };
+    let mut last_shot_time: f64 = 0.0;
+    let mut score: u32 = 0;
+    let mut high_score: u32 = fs::read_to_string("highscore.dat")
+        .map_or(Ok(0), |i| i.parse::<u32>())
+        .unwrap_or(0);
 
     rand::srand(miniquad::date::now() as u64);
 
@@ -165,6 +199,7 @@ async fn main() {
                 if is_key_pressed(KeyCode::Space) {
                     squares.clear();
                     bullets.clear();
+                    explosions.clear();
                     player_circle.x = screen_width() / 2.0;
                     player_circle.y = screen_height() / 2.0;
                     score = 0;
@@ -259,6 +294,9 @@ async fn main() {
                 squares.retain(|square| !square.collided);
                 bullets.retain(|bullet| !bullet.collided);
 
+                // Remove the old explosions
+                explosions.retain(|(explosion, _)| explosion.config.emitting);
+
                 // Check for collisions
                 if squares.iter().any(|square| player_circle.collides_with_square(square)) {
                     game_state = GameState::GameOver;
@@ -270,12 +308,21 @@ async fn main() {
                             square.collided = true;
                             score += square.size.round() as u32;
                             high_score = high_score.max(score);
+
+                            // Start new explosion
+                            explosions.push((
+                                Emitter::new(EmitterConfig {
+                                    amount: square.size.round() as u32 * 2,
+                                    ..particle_explosion()
+                                }),
+                                vec2(square.x, square.y)
+                            ));
                         }
                     }
                 }
 
                 // Draw playing scene
-                draw_playing_scene(&player_circle, &bullets, &squares, score, high_score);
+                draw_playing_scene(&player_circle, &bullets, &squares, &mut explosions, score, high_score);
             },
             GameState::Paused => {
                 if is_key_pressed(KeyCode::Space) {
@@ -286,7 +333,7 @@ async fn main() {
                 }
 
                 // Draw playing scene
-                draw_playing_scene(&player_circle, &bullets, &squares, score, high_score);
+                draw_playing_scene(&player_circle, &bullets, &squares, &mut explosions, score, high_score);
 
                 let text = "Paused";
                 let text_dimensions = measure_text(text, None, 50, 1.0);
@@ -312,7 +359,7 @@ async fn main() {
                 }
                 
                 // Draw playing scene
-                draw_playing_scene(&player_circle, &bullets, &squares, score, high_score);
+                draw_playing_scene(&player_circle, &bullets, &squares, &mut explosions, score, high_score);
 
                 let game_over_text = "GAME OVER!";
                 let go_text_dimensions = measure_text(game_over_text, None, 50, 1.0);
