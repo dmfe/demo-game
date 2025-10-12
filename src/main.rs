@@ -1,6 +1,7 @@
 use std::fs;
 use macroquad::prelude::*;
 use macroquad::rand::ChooseRandom;
+use macroquad::experimental::animation::{AnimatedSprite, Animation};
 use macroquad_particles::{self as particles, ColorCurve, Emitter, EmitterConfig};
 
 const FRAGMENT_SHADER: &str = include_str!("starfield-shader.glsl");
@@ -21,7 +22,8 @@ void main() {
 ";
 
 struct Shape {
-    size: f32,
+    width: f32,
+    height: f32,
     speed: f32,
     x: f32,
     y: f32,
@@ -34,23 +36,12 @@ impl Shape {
         self.rect().overlaps(&other.rect())
     }
 
-    fn collides_with_square(&self, other: &Self) -> bool {
-        let closest_x = clamp(self.x, other.x - other.size / 2.0, other.x + other.size / 2.0);
-        let closest_y = clamp(self.y, other.y - other.size / 2.0, other.y + other.size / 2.0);
-
-        let distance_x = self.x - closest_x;
-        let distance_y = self.y - closest_y;
-        let distance_squared = distance_x * distance_x + distance_y * distance_y;
-
-        distance_squared <= (self.size / 2.0) * (self.size / 2.0)
-    }
-
     fn rect(&self) -> Rect {
         Rect {
-            x: self.x - self.size / 2.0,
-            y: self.y - self.size / 2.0,
-            w: self.size,
-            h: self.size
+            x: self.x - self.width / 2.0,
+            y: self.y - self.height / 2.0,
+            w: self.width,
+            h: self.height
         }
     }
 }
@@ -63,25 +54,62 @@ enum GameState {
 }
 
 fn draw_playing_scene(
-    player_circle: &Shape,
+    player: &Shape,
+    player_sprite: &mut AnimatedSprite,
+    player_texture: &Texture2D,
     player_engine: &mut Emitter,
     bullets: &Vec<Shape>,
+    bullet_sprite: &mut AnimatedSprite,
+    bullet_texture: &Texture2D,
     squares: &Vec<Shape>,
     explosions: &mut Vec<(Emitter, Vec2)>,
     score: u32,
     high_score: u32
 ) {
-    draw_circle(player_circle.x, player_circle.y, player_circle.size / 2.0, player_circle.color);
-    player_engine.draw(vec2(player_circle.x, player_circle.y + player_circle.size / 2.0));
+    // Update sprites
+    player_sprite.update();
+    bullet_sprite.update();
+
+    // Draw Player
+    player_engine.draw(vec2(
+            player.x,
+            player.y + player.height / 3.0
+    ));
+    let player_frame = player_sprite.frame();
+    draw_texture_ex(
+        player_texture,
+        player.x - player.width / 2.0,
+        player.y - player.width / 2.0,
+        WHITE,
+        DrawTextureParams {
+            dest_size: Some(vec2(player.width, player.height)),
+            source: Some(player_frame.source_rect),
+            ..Default::default()
+        }
+    );
+
+    // Draw bullets
     for bullet in bullets {
-        draw_circle(bullet.x, bullet.y, bullet.size / 2.0, bullet.color);
+        let bullet_frame = bullet_sprite.frame();
+        draw_texture_ex(
+            bullet_texture,
+            bullet.x - bullet_frame.dest_size.x,
+            bullet.y - bullet_frame.dest_size.y,
+            WHITE,
+            DrawTextureParams {
+                dest_size: Some(vec2(bullet.width, bullet.height)),
+                source: Some(bullet_frame.source_rect),
+                ..Default::default()
+            }
+        );
     }
+
     for square in squares {
         draw_rectangle(
-            square.x - square.size / 2.0,
-            square.y - square.size / 2.0,
-            square.size,
-            square.size,
+            square.x - square.width / 2.0,
+            square.y - square.height / 2.0,
+            square.width,
+            square.height,
             square.color
         );
     }
@@ -138,15 +166,15 @@ fn particle_engine() -> particles::EmitterConfig {
         lifetime_randomness: 0.3,
         explosiveness: 0.65,
         initial_direction: vec2(0.0, 1.0),
-        initial_direction_spread: 0.1 * std::f32::consts::PI,
+        initial_direction_spread: 0.3 * std::f32::consts::PI,
         initial_velocity: 300.0,
         initial_velocity_randomness: 0.8,
         size: 3.0,
         size_randomness: 0.3,
         colors_curve: ColorCurve {
-            start: RED,
-            mid: ORANGE,
-            end: BLUE
+            start: SKYBLUE,
+            mid: SKYBLUE,
+            end: SKYBLUE
         },
         ..Default::default()
     }
@@ -156,6 +184,7 @@ fn particle_engine() -> particles::EmitterConfig {
 async fn main() {
     const MOVEMENT_SPEED: f32 = 200.0;
     const RELOAD_TIME_SECONDS: f64 = 0.1;
+    const SIDE_ANIMATION_SWITCH_SECONDS: f64 = 0.5;
 
     let square_colors = vec![ORANGE, RED, PURPLE, GREEN];
 
@@ -163,8 +192,9 @@ async fn main() {
     let mut squares: Vec<Shape> = vec![];
     let mut bullets: Vec<Shape> = vec![];
     let mut explosions: Vec<(Emitter, Vec2)> = vec![];
-    let mut player_circle = Shape {
-        size: 32.0,
+    let mut player = Shape {
+        width: 64.0,
+        height: 96.0,
         speed: MOVEMENT_SPEED,
         x: screen_width() / 2.0,
         y: screen_height() / 2.0,
@@ -172,10 +202,12 @@ async fn main() {
         color: YELLOW
     };
     let mut player_engine: Emitter = Emitter::new(EmitterConfig {
-        amount: player_circle.size.round() as u32 * 2,
+        amount: player.height.round() as u32 * 2,
         ..particle_engine()
     });
     let mut last_shot_time: f64 = 0.0;
+    let mut last_left_key_time: f64 = 0.0;
+    let mut last_right_key_time: f64 = 0.0;
     let mut score: u32 = 0;
     let mut high_score: u32 = fs::read_to_string("highscore.dat")
         .map_or(Ok(0), |i| i.parse::<u32>())
@@ -201,6 +233,78 @@ async fn main() {
         }
     )
     .unwrap();
+
+    // Resources initialization
+    set_pc_assets_folder("assets");
+
+    let player_texture: Texture2D = load_texture("ship.png")
+        .await
+        .expect("Couldn't load texture file.");
+    player_texture.set_filter(FilterMode::Nearest);
+    let bullet_texture: Texture2D = load_texture("laser-bolts.png")
+        .await
+        .expect("Couldn't load texture file.");
+    bullet_texture.set_filter(FilterMode::Nearest);
+    build_textures_atlas();
+
+    // Animations
+    let mut player_sprite = AnimatedSprite::new(
+        16,
+        24,
+        &[
+            Animation {
+                name: "idle".to_string(),
+                row: 0,
+                frames: 2,
+                fps: 12,
+            },
+            Animation {
+                name: "slight-left".to_string(),
+                row: 1,
+                frames: 2,
+                fps: 12,
+            },
+            Animation {
+                name: "left".to_string(),
+                row: 2,
+                frames: 2,
+                fps: 12,
+            },
+            Animation {
+                name: "slight-right".to_string(),
+                row: 3,
+                frames: 2,
+                fps: 12,
+            },
+            Animation {
+                name: "right".to_string(),
+                row: 4,
+                frames: 2,
+                fps: 12,
+            }
+        ],
+        true
+    );
+    let mut bullet_sprite = AnimatedSprite::new(
+        16,
+        16,
+        &[
+            Animation {
+                name: "bullet".to_string(),
+                row: 0,
+                frames: 2,
+                fps: 12
+            },
+            Animation {
+                name: "bolt".to_string(),
+                row: 1,
+                frames: 2,
+                fps: 12
+            },
+        ],
+        true
+    );
+    bullet_sprite.set_animation(1);
 
     loop {
         clear_background(BLACK);
@@ -230,8 +334,8 @@ async fn main() {
                     bullets.clear();
                     explosions.clear();
                     player_engine.config.emitting = true;
-                    player_circle.x = screen_width() / 2.0;
-                    player_circle.y = screen_height() / 2.0;
+                    player.x = screen_width() / 2.0;
+                    player.y = screen_height() / 2.0;
                     score = 0;
                     game_state = GameState::Playing;
                 }
@@ -258,29 +362,51 @@ async fn main() {
             },
             GameState::Playing => {
                 let delta_time = get_frame_time();
+                player_sprite.set_animation(0);
 
                 if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) {
-                    player_circle.x += player_circle.speed * delta_time;
+                    player.x += player.speed * delta_time;
                     direction_modifier += 0.05 * delta_time;
+
+                    if get_time() - last_right_key_time >= SIDE_ANIMATION_SWITCH_SECONDS {
+                        player_sprite.set_animation(4);
+                    } else {
+                        player_sprite.set_animation(3);
+                    }
                 }
+                if is_key_pressed(KeyCode::Right) || is_key_pressed(KeyCode::D) {
+                    last_right_key_time = get_time();
+                }
+
                 if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) {
-                    player_circle.x -= player_circle.speed * delta_time;
+                    player.x -= player.speed * delta_time;
                     direction_modifier -= 0.05 * delta_time;
+
+                    if get_time() - last_left_key_time >= SIDE_ANIMATION_SWITCH_SECONDS {
+                        player_sprite.set_animation(2);
+                    } else {
+                        player_sprite.set_animation(1);
+                    }
                 }
+                if is_key_pressed(KeyCode::Left) || is_key_pressed(KeyCode::A) {
+                    last_left_key_time = get_time();
+                }
+
                 if is_key_down(KeyCode::Down) || is_key_down(KeyCode::S) {
-                    player_circle.y += player_circle.speed * delta_time;
+                    player.y += player.speed * delta_time;
                 }
                 if is_key_down(KeyCode::Up) || is_key_down(KeyCode::W) {
-                    player_circle.y -= player_circle.speed * delta_time;
+                    player.y -= player.speed * delta_time;
                 }
                 if is_key_pressed(KeyCode::Space) {
                     let current_time = get_time();
                     if current_time - last_shot_time >= RELOAD_TIME_SECONDS {
                         bullets.push(Shape {
-                            x: player_circle.x,
-                            y: player_circle.y,
-                            speed: player_circle.speed * 2.0,
-                            size: 10.0,
+                            width: 32.0,
+                            height: 32.0,
+                            x: player.x,
+                            y: player.y - 24.0,
+                            speed: player.speed * 2.0,
                             collided: false,
                             color: RED
                         });
@@ -292,14 +418,15 @@ async fn main() {
                 }
 
                 // Clamp X and Y of player circle to be within screen
-                player_circle.x = clamp(player_circle.x, 0.0 + player_circle.size, screen_width() - player_circle.size);
-                player_circle.y = clamp(player_circle.y, 0.0 + player_circle.size, screen_height() - player_circle.size);
+                player.x = clamp(player.x, 0.0 + player.width, screen_width() - player.width);
+                player.y = clamp(player.y, 0.0 + player.height, screen_height() - player.height);
 
                 // Ganerate a new square
-                if rand::gen_range(0, 99) >= 80 {
+                if rand::gen_range(0, 99) >= 90 {
                     let size = rand::gen_range(36.0, 84.0);
                     squares.push(Shape {
-                        size: size,
+                        width: size,
+                        height: size,
                         speed: rand::gen_range(300.0, 400.0),
                         x: rand::gen_range(size / 2.0, screen_width() - size / 2.0),
                         y: -size,
@@ -317,8 +444,8 @@ async fn main() {
                 }
 
                 // Remove shapes outside of the screen
-                squares.retain(|square| square.y < screen_height() + square.size);
-                bullets.retain(|bullet| bullet.y > 0.0 - bullet.size);
+                squares.retain(|square| square.y < screen_height() + square.height);
+                bullets.retain(|bullet| bullet.y > 0.0 - bullet.height);
 
                 // Remove collided shaped
                 squares.retain(|square| !square.collided);
@@ -328,7 +455,7 @@ async fn main() {
                 explosions.retain(|(explosion, _)| explosion.config.emitting);
 
                 // Check for collisions
-                if squares.iter().any(|square| player_circle.collides_with_square(square)) {
+                if squares.iter().any(|square| player.collides_with(square)) {
                     game_state = GameState::GameOver;
                     player_engine.config.emitting = false;
                 }
@@ -337,13 +464,13 @@ async fn main() {
                         if bullet.collides_with(square) {
                             bullet.collided = true;
                             square.collided = true;
-                            score += square.size.round() as u32;
+                            score += square.height.round() as u32;
                             high_score = high_score.max(score);
 
                             // Start new explosion
                             explosions.push((
                                 Emitter::new(EmitterConfig {
-                                    amount: square.size.round() as u32 * 2,
+                                    amount: square.height.round() as u32 * 2,
                                     ..particle_explosion()
                                 }),
                                 vec2(square.x, square.y)
@@ -354,9 +481,13 @@ async fn main() {
 
                 // Draw playing scene
                 draw_playing_scene(
-                    &player_circle,
+                    &player,
+                    &mut player_sprite,
+                    &player_texture,
                     &mut player_engine,
                     &bullets,
+                    &mut bullet_sprite,
+                    &bullet_texture,
                     &squares,
                     &mut explosions,
                     score,
@@ -373,9 +504,13 @@ async fn main() {
 
                 // Draw playing scene
                 draw_playing_scene(
-                    &player_circle,
+                    &player,
+                    &mut player_sprite,
+                    &player_texture,
                     &mut player_engine,
                     &bullets,
+                    &mut bullet_sprite,
+                    &bullet_texture,
                     &squares,
                     &mut explosions,
                     score,
@@ -398,8 +533,8 @@ async fn main() {
                     bullets.clear();
                     explosions.clear();
                     player_engine.config.emitting = true;
-                    player_circle.x = screen_width() / 2.0;
-                    player_circle.y = screen_height() / 2.0;
+                    player.x = screen_width() / 2.0;
+                    player.y = screen_height() / 2.0;
                     score = 0;
                     game_state = GameState::Playing;
                 }
@@ -409,9 +544,13 @@ async fn main() {
                 
                 // Draw playing scene
                 draw_playing_scene(
-                    &player_circle,
+                    &player,
+                    &mut player_sprite,
+                    &player_texture,
                     &mut player_engine,
                     &bullets,
+                    &mut bullet_sprite,
+                    &bullet_texture,
                     &squares,
                     &mut explosions,
                     score,
