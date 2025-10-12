@@ -64,6 +64,7 @@ enum GameState {
 
 fn draw_playing_scene(
     player_circle: &Shape,
+    player_engine: &mut Emitter,
     bullets: &Vec<Shape>,
     squares: &Vec<Shape>,
     explosions: &mut Vec<(Emitter, Vec2)>,
@@ -71,6 +72,7 @@ fn draw_playing_scene(
     high_score: u32
 ) {
     draw_circle(player_circle.x, player_circle.y, player_circle.size / 2.0, player_circle.color);
+    player_engine.draw(vec2(player_circle.x, player_circle.y + player_circle.size / 2.0));
     for bullet in bullets {
         draw_circle(bullet.x, bullet.y, bullet.size / 2.0, bullet.color);
     }
@@ -127,6 +129,29 @@ fn particle_explosion() -> particles::EmitterConfig {
     }
 }
 
+fn particle_engine() -> particles::EmitterConfig {
+    particles::EmitterConfig {
+        local_coords: false,
+        one_shot: false,
+        emitting: false,
+        lifetime: 0.6,
+        lifetime_randomness: 0.3,
+        explosiveness: 0.65,
+        initial_direction: vec2(0.0, 1.0),
+        initial_direction_spread: 0.1 * std::f32::consts::PI,
+        initial_velocity: 300.0,
+        initial_velocity_randomness: 0.8,
+        size: 3.0,
+        size_randomness: 0.3,
+        colors_curve: ColorCurve {
+            start: RED,
+            mid: ORANGE,
+            end: BLUE
+        },
+        ..Default::default()
+    }
+}
+
 #[macroquad::main("Space Warior")]
 async fn main() {
     const MOVEMENT_SPEED: f32 = 200.0;
@@ -146,6 +171,10 @@ async fn main() {
         collided: false,
         color: YELLOW
     };
+    let mut player_engine: Emitter = Emitter::new(EmitterConfig {
+        amount: player_circle.size.round() as u32 * 2,
+        ..particle_engine()
+    });
     let mut last_shot_time: f64 = 0.0;
     let mut score: u32 = 0;
     let mut high_score: u32 = fs::read_to_string("highscore.dat")
@@ -200,6 +229,7 @@ async fn main() {
                     squares.clear();
                     bullets.clear();
                     explosions.clear();
+                    player_engine.config.emitting = true;
                     player_circle.x = screen_width() / 2.0;
                     player_circle.y = screen_height() / 2.0;
                     score = 0;
@@ -300,6 +330,7 @@ async fn main() {
                 // Check for collisions
                 if squares.iter().any(|square| player_circle.collides_with_square(square)) {
                     game_state = GameState::GameOver;
+                    player_engine.config.emitting = false;
                 }
                 for square in squares.iter_mut() {
                     for bullet in bullets.iter_mut() {
@@ -322,7 +353,15 @@ async fn main() {
                 }
 
                 // Draw playing scene
-                draw_playing_scene(&player_circle, &bullets, &squares, &mut explosions, score, high_score);
+                draw_playing_scene(
+                    &player_circle,
+                    &mut player_engine,
+                    &bullets,
+                    &squares,
+                    &mut explosions,
+                    score,
+                    high_score
+                );
             },
             GameState::Paused => {
                 if is_key_pressed(KeyCode::Space) {
@@ -333,7 +372,15 @@ async fn main() {
                 }
 
                 // Draw playing scene
-                draw_playing_scene(&player_circle, &bullets, &squares, &mut explosions, score, high_score);
+                draw_playing_scene(
+                    &player_circle,
+                    &mut player_engine,
+                    &bullets,
+                    &squares,
+                    &mut explosions,
+                    score,
+                    high_score
+                );
 
                 let text = "Paused";
                 let text_dimensions = measure_text(text, None, 50, 1.0);
@@ -349,6 +396,8 @@ async fn main() {
                 if is_key_pressed(KeyCode::Space) {
                     squares.clear();
                     bullets.clear();
+                    explosions.clear();
+                    player_engine.config.emitting = true;
                     player_circle.x = screen_width() / 2.0;
                     player_circle.y = screen_height() / 2.0;
                     score = 0;
@@ -359,7 +408,15 @@ async fn main() {
                 }
                 
                 // Draw playing scene
-                draw_playing_scene(&player_circle, &bullets, &squares, &mut explosions, score, high_score);
+                draw_playing_scene(
+                    &player_circle,
+                    &mut player_engine,
+                    &bullets,
+                    &squares,
+                    &mut explosions,
+                    score,
+                    high_score
+                );
 
                 let game_over_text = "GAME OVER!";
                 let go_text_dimensions = measure_text(game_over_text, None, 50, 1.0);
