@@ -2,7 +2,7 @@ use std::fs;
 use macroquad::prelude::*;
 use macroquad::rand::ChooseRandom;
 use macroquad::experimental::animation::{AnimatedSprite, Animation};
-use macroquad_particles::{self as particles, ColorCurve, Emitter, EmitterConfig};
+use macroquad_particles::{self as particles, AtlasConfig, ColorCurve, Emitter, EmitterConfig};
 
 const FRAGMENT_SHADER: &str = include_str!("starfield-shader.glsl");
 const VERTEX_SHADER: &str = "#version 100
@@ -140,19 +140,15 @@ fn particle_explosion() -> particles::EmitterConfig {
         local_coords: false,
         one_shot: true,
         emitting: true,
-        lifetime: 0.6,
+        lifetime: 0.8,
         lifetime_randomness: 0.3,
         explosiveness: 0.65,
         initial_direction_spread: 2.0 * std::f32::consts::PI,
-        initial_velocity: 300.0,
+        initial_velocity: 200.0,
         initial_velocity_randomness: 0.8,
-        size: 3.0,
+        size: 16.0,
         size_randomness: 0.3,
-        colors_curve: ColorCurve {
-            start: RED,
-            mid: ORANGE,
-            end: RED
-        },
+        atlas: Some(AtlasConfig::new(5, 1, 0..)),
         ..Default::default()
     }
 }
@@ -245,6 +241,10 @@ async fn main() {
         .await
         .expect("Couldn't load texture file.");
     bullet_texture.set_filter(FilterMode::Nearest);
+    let explosion_texture: Texture2D = load_texture("explosion.png")
+        .await
+        .expect("Couldn't load texture file.");
+    explosion_texture.set_filter(FilterMode::Nearest);
     build_textures_atlas();
 
     // Animations
@@ -443,21 +443,11 @@ async fn main() {
                     bullet.y -= bullet.speed * delta_time;
                 }
 
-                // Remove shapes outside of the screen
-                squares.retain(|square| square.y < screen_height() + square.height);
-                bullets.retain(|bullet| bullet.y > 0.0 - bullet.height);
-
-                // Remove collided shaped
-                squares.retain(|square| !square.collided);
-                bullets.retain(|bullet| !bullet.collided);
-
-                // Remove the old explosions
-                explosions.retain(|(explosion, _)| explosion.config.emitting);
-
                 // Check for collisions
                 if squares.iter().any(|square| player.collides_with(square)) {
                     game_state = GameState::GameOver;
                     player_engine.config.emitting = false;
+                    continue;
                 }
                 for square in squares.iter_mut() {
                     for bullet in bullets.iter_mut() {
@@ -470,7 +460,8 @@ async fn main() {
                             // Start new explosion
                             explosions.push((
                                 Emitter::new(EmitterConfig {
-                                    amount: square.height.round() as u32 * 2,
+                                    amount: square.height.round() as u32,
+                                    texture: Some(explosion_texture.clone()),
                                     ..particle_explosion()
                                 }),
                                 vec2(square.x, square.y)
@@ -478,6 +469,17 @@ async fn main() {
                         }
                     }
                 }
+
+                // Remove shapes outside of the screen
+                squares.retain(|square| square.y < screen_height() + square.height);
+                bullets.retain(|bullet| bullet.y > 0.0 - bullet.height);
+
+                // Remove collided shaped
+                squares.retain(|square| !square.collided);
+                bullets.retain(|bullet| !bullet.collided);
+
+                // Remove the old explosions
+                explosions.retain(|(explosion, _)| explosion.config.emitting);
 
                 // Draw playing scene
                 draw_playing_scene(
