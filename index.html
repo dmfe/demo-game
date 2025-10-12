@@ -22,7 +22,43 @@
 <body>
     <canvas id="glcanvas" tabindex='1'></canvas>
     <!-- Minified and statically hosted version of https://github.com/not-fl3/macroquad/blob/master/js/mq_js_bundle.js -->
-    <script src="https://not-fl3.github.io/miniquad-samples/mq_js_bundle.js"></script>
+    <script src="mq_js_bundle.js"></script>
+    <script>
+        importObject.env["glCheckFramebufferStatus"] = function(e) {
+            return gl.checkFramebufferStatus(e);
+        };
+        importObject.env["glReadBuffer"] = function(e) {
+            gl.readBuffer(e);
+        };
+        importObject.env["glBlitFramebuffer"] = function(
+            srcX0,
+            srcY0,
+            srcX1,
+            srcY1,
+            dstX0,
+            dstY0,
+            dstX1,
+            dstY1,
+            mask,
+            filter
+        ) {
+            gl.blitFramebuffer(
+                srcX0,
+                srcY0,
+                srcX1,
+                srcY1,
+                dstX0,
+                dstY0,
+                dstX1,
+                dstY1,
+                mask,
+                filter
+            );
+        };
+        importObject.env["console_debug"] = function(ptr) {
+            console.debug(UTF8ToString(ptr));
+        };
+    </script>
     <script>load("demo-game.wasm");</script> <!-- Your compiled WASM binary -->
 </body>
 </html>
