@@ -1,6 +1,5 @@
 use std::fs;
 use macroquad::prelude::*;
-use macroquad::rand::ChooseRandom;
 use macroquad::experimental::animation::{AnimatedSprite, Animation};
 use macroquad_particles::{self as particles, AtlasConfig, ColorCurve, Emitter, EmitterConfig};
 
@@ -21,17 +20,33 @@ void main() {
 }
 ";
 
-struct Shape {
+struct GameObject<'a> {
+    texture: Option<&'a Texture2D>,
+    sprite: Option<&'a AnimatedSprite>,
     width: f32,
     height: f32,
     speed: f32,
     x: f32,
     y: f32,
-    collided: bool,
-    color: Color
+    collided: bool
 }
 
-impl Shape {
+impl Default for GameObject<'_> {
+    fn default() -> Self {
+        Self {
+            texture: None,
+            sprite: None,
+            width: 0.0,
+            height: 0.0,
+            speed: 0.0,
+            x: 0.0,
+            y: 0.0,
+            collided: false
+        }
+    }
+}
+
+impl GameObject<'_> {
     fn collides_with(&self, other: &Self) -> bool {
         self.rect().overlaps(&other.rect())
     }
@@ -54,14 +69,16 @@ enum GameState {
 }
 
 fn draw_playing_scene(
-    player: &Shape,
-    player_sprite: &mut AnimatedSprite,
+    player: &GameObject,
     player_texture: &Texture2D,
+    player_sprite: &mut AnimatedSprite,
     player_engine: &mut Emitter,
-    bullets: &Vec<Shape>,
+    bullets: &Vec<GameObject>,
     bullet_sprite: &mut AnimatedSprite,
     bullet_texture: &Texture2D,
-    squares: &Vec<Shape>,
+    enemies: &Vec<GameObject>,
+    enemy_small_sprite: &mut AnimatedSprite,
+    enemy_small_texture: &Texture2D,
     explosions: &mut Vec<(Emitter, Vec2)>,
     score: u32,
     high_score: u32
@@ -69,6 +86,7 @@ fn draw_playing_scene(
     // Update sprites
     player_sprite.update();
     bullet_sprite.update();
+    enemy_small_sprite.update();
 
     // Draw Player
     player_engine.draw(vec2(
@@ -82,7 +100,7 @@ fn draw_playing_scene(
         player.y - player.width / 2.0,
         WHITE,
         DrawTextureParams {
-            dest_size: Some(vec2(player.width, player.height)),
+            dest_size: Some(vec2(player.width + 10.0, player.height + 10.0)),
             source: Some(player_frame.source_rect),
             ..Default::default()
         }
@@ -104,13 +122,19 @@ fn draw_playing_scene(
         );
     }
 
-    for square in squares {
-        draw_rectangle(
-            square.x - square.width / 2.0,
-            square.y - square.height / 2.0,
-            square.width,
-            square.height,
-            square.color
+    // Draw enemies
+    let enemy_frame = enemy_small_sprite.frame();
+    for enemy in enemies {
+        draw_texture_ex(
+            enemy_small_texture,
+            enemy.x - enemy.width / 2.0,
+            enemy.y - enemy.height / 2.0,
+            WHITE,
+            DrawTextureParams {
+                dest_size: Some(vec2(enemy.width + 10.0, enemy.height + 10.0)),
+                source: Some(enemy_frame.source_rect),
+                ..Default::default()
+            }
         );
     }
     for (explosion, coords) in explosions.iter_mut() {
@@ -182,54 +206,6 @@ async fn main() {
     const RELOAD_TIME_SECONDS: f64 = 0.1;
     const SIDE_ANIMATION_SWITCH_SECONDS: f64 = 0.5;
 
-    let square_colors = vec![ORANGE, RED, PURPLE, GREEN];
-
-    let mut game_state = GameState::MainMenu;
-    let mut squares: Vec<Shape> = vec![];
-    let mut bullets: Vec<Shape> = vec![];
-    let mut explosions: Vec<(Emitter, Vec2)> = vec![];
-    let mut player = Shape {
-        width: 64.0,
-        height: 96.0,
-        speed: MOVEMENT_SPEED,
-        x: screen_width() / 2.0,
-        y: screen_height() / 2.0,
-        collided: false,
-        color: YELLOW
-    };
-    let mut player_engine: Emitter = Emitter::new(EmitterConfig {
-        amount: player.height.round() as u32 * 2,
-        ..particle_engine()
-    });
-    let mut last_shot_time: f64 = 0.0;
-    let mut last_left_key_time: f64 = 0.0;
-    let mut last_right_key_time: f64 = 0.0;
-    let mut score: u32 = 0;
-    let mut high_score: u32 = fs::read_to_string("highscore.dat")
-        .map_or(Ok(0), |i| i.parse::<u32>())
-        .unwrap_or(0);
-
-    rand::srand(miniquad::date::now() as u64);
-
-    let i_resolution: [f32; 2] = [screen_width(), screen_height()];
-    let mut direction_modifier: f32 = 0.0;
-    let render_target = render_target(320, 150);
-    render_target.texture.set_filter(FilterMode::Nearest);
-    let material = load_material(
-        ShaderSource::Glsl {
-            vertex: VERTEX_SHADER,
-            fragment: FRAGMENT_SHADER
-        },
-        MaterialParams {
-            uniforms: vec![
-                UniformDesc::new("direction_modifier", UniformType::Float1),
-                UniformDesc::new("iResolution", UniformType::Float2),
-            ],
-            ..Default::default()
-        }
-    )
-    .unwrap();
-
     // Resources initialization
     set_pc_assets_folder("assets");
 
@@ -245,6 +221,18 @@ async fn main() {
         .await
         .expect("Couldn't load texture file.");
     explosion_texture.set_filter(FilterMode::Nearest);
+    let enemy_small_texture: Texture2D = load_texture("enemy-small.png")
+        .await
+        .expect("Couldn't load texture file.");
+    enemy_small_texture.set_filter(FilterMode::Nearest);
+    let enemy_medium_texture: Texture2D = load_texture("enemy-medium.png")
+        .await
+        .expect("Couldn't load texture file.");
+    enemy_medium_texture.set_filter(FilterMode::Nearest);
+    let enemy_big_texture: Texture2D = load_texture("enemy-big.png")
+        .await
+        .expect("Couldn't load texture file.");
+    enemy_big_texture.set_filter(FilterMode::Nearest);
     build_textures_atlas();
 
     // Animations
@@ -305,6 +293,91 @@ async fn main() {
         true
     );
     bullet_sprite.set_animation(1);
+    let mut enemy_small_sprite = AnimatedSprite::new(
+        17,
+        16,
+        &[
+            Animation {
+                name: "enemy_small".to_string(),
+                row: 0,
+                frames: 2,
+                fps: 12
+            }
+        ],
+        true
+    );
+    let mut enemy_medium_sprite = AnimatedSprite::new(
+        32,
+        16,
+        &[
+            Animation {
+                name: "enemy_medium".to_string(),
+                row: 0,
+                frames: 2,
+                fps: 12
+            }
+        ],
+        true
+    );
+    let mut enemy_big_sprite = AnimatedSprite::new(
+        32,
+        32,
+        &[
+            Animation {
+                name: "enemy_big".to_string(),
+                row: 0,
+                frames: 2,
+                fps: 12
+            }
+        ],
+        true
+    );
+
+    let mut game_state = GameState::MainMenu;
+    let mut enemies: Vec<GameObject> = vec![];
+    let mut bullets: Vec<GameObject> = vec![];
+    let mut explosions: Vec<(Emitter, Vec2)> = vec![];
+    let mut player = GameObject {
+        width: 64.0,
+        height: 96.0,
+        speed: MOVEMENT_SPEED,
+        x: screen_width() / 2.0,
+        y: screen_height() / 2.0,
+        collided: false,
+        ..Default::default()
+    };
+    let mut player_engine: Emitter = Emitter::new(EmitterConfig {
+        amount: player.height.round() as u32 * 2,
+        ..particle_engine()
+    });
+    let mut last_shot_time: f64 = 0.0;
+    let mut last_left_key_time: f64 = 0.0;
+    let mut last_right_key_time: f64 = 0.0;
+    let mut score: u32 = 0;
+    let mut high_score: u32 = fs::read_to_string("highscore.dat")
+        .map_or(Ok(0), |i| i.parse::<u32>())
+        .unwrap_or(0);
+
+    rand::srand(miniquad::date::now() as u64);
+
+    let i_resolution: [f32; 2] = [screen_width(), screen_height()];
+    let mut direction_modifier: f32 = 0.0;
+    let render_target = render_target(320, 150);
+    render_target.texture.set_filter(FilterMode::Nearest);
+    let material = load_material(
+        ShaderSource::Glsl {
+            vertex: VERTEX_SHADER,
+            fragment: FRAGMENT_SHADER
+        },
+        MaterialParams {
+            uniforms: vec![
+                UniformDesc::new("direction_modifier", UniformType::Float1),
+                UniformDesc::new("iResolution", UniformType::Float2),
+            ],
+            ..Default::default()
+        }
+    )
+    .unwrap();
 
     loop {
         clear_background(BLACK);
@@ -330,7 +403,7 @@ async fn main() {
                     std::process::exit(0);
                 }
                 if is_key_pressed(KeyCode::Space) {
-                    squares.clear();
+                    enemies.clear();
                     bullets.clear();
                     explosions.clear();
                     player_engine.config.emitting = true;
@@ -401,14 +474,14 @@ async fn main() {
                 if is_key_pressed(KeyCode::Space) {
                     let current_time = get_time();
                     if current_time - last_shot_time >= RELOAD_TIME_SECONDS {
-                        bullets.push(Shape {
+                        bullets.push(GameObject {
                             width: 32.0,
                             height: 32.0,
                             x: player.x,
                             y: player.y - 24.0,
                             speed: player.speed * 2.0,
                             collided: false,
-                            color: RED
+                            ..Default::default()
                         });
                         last_shot_time = current_time;
                     }
@@ -424,58 +497,58 @@ async fn main() {
                 // Ganerate a new square
                 if rand::gen_range(0, 99) >= 90 {
                     let size = rand::gen_range(36.0, 84.0);
-                    squares.push(Shape {
+                    enemies.push(GameObject {
                         width: size,
                         height: size,
                         speed: rand::gen_range(300.0, 400.0),
                         x: rand::gen_range(size / 2.0, screen_width() - size / 2.0),
                         y: -size,
                         collided: false,
-                        color: *square_colors.choose().unwrap()
+                        ..Default::default()
                     });
                 }
 
                 // Movement
-                for square in &mut squares {
-                    square.y += square.speed * delta_time;
+                for enemy in &mut enemies {
+                    enemy.y += enemy.speed * delta_time;
                 }
                 for bullet in &mut bullets {
                     bullet.y -= bullet.speed * delta_time;
                 }
 
                 // Check for collisions
-                if squares.iter().any(|square| player.collides_with(square)) {
+                if enemies.iter().any(|enemy| player.collides_with(enemy)) {
                     game_state = GameState::GameOver;
                     player_engine.config.emitting = false;
                     continue;
                 }
-                for square in squares.iter_mut() {
+                for enemy in enemies.iter_mut() {
                     for bullet in bullets.iter_mut() {
-                        if bullet.collides_with(square) {
+                        if bullet.collides_with(enemy) {
                             bullet.collided = true;
-                            square.collided = true;
-                            score += square.height.round() as u32;
+                            enemy.collided = true;
+                            score += enemy.height.round() as u32;
                             high_score = high_score.max(score);
 
                             // Start new explosion
                             explosions.push((
                                 Emitter::new(EmitterConfig {
-                                    amount: square.height.round() as u32,
+                                    amount: enemy.height.round() as u32,
                                     texture: Some(explosion_texture.clone()),
                                     ..particle_explosion()
                                 }),
-                                vec2(square.x, square.y)
+                                vec2(enemy.x, enemy.y)
                             ));
                         }
                     }
                 }
 
                 // Remove shapes outside of the screen
-                squares.retain(|square| square.y < screen_height() + square.height);
+                enemies.retain(|enemy| enemy.y < screen_height() + enemy.height);
                 bullets.retain(|bullet| bullet.y > 0.0 - bullet.height);
 
                 // Remove collided shaped
-                squares.retain(|square| !square.collided);
+                enemies.retain(|enemy| !enemy.collided);
                 bullets.retain(|bullet| !bullet.collided);
 
                 // Remove the old explosions
@@ -484,13 +557,15 @@ async fn main() {
                 // Draw playing scene
                 draw_playing_scene(
                     &player,
-                    &mut player_sprite,
                     &player_texture,
+                    &mut player_sprite,
                     &mut player_engine,
                     &bullets,
                     &mut bullet_sprite,
                     &bullet_texture,
-                    &squares,
+                    &enemies,
+                    &mut enemy_small_sprite,
+                    &enemy_small_texture,
                     &mut explosions,
                     score,
                     high_score
@@ -507,13 +582,15 @@ async fn main() {
                 // Draw playing scene
                 draw_playing_scene(
                     &player,
-                    &mut player_sprite,
                     &player_texture,
+                    &mut player_sprite,
                     &mut player_engine,
                     &bullets,
                     &mut bullet_sprite,
                     &bullet_texture,
-                    &squares,
+                    &enemies,
+                    &mut enemy_small_sprite,
+                    &enemy_small_texture,
                     &mut explosions,
                     score,
                     high_score
@@ -531,7 +608,7 @@ async fn main() {
             },
             GameState::GameOver => {
                 if is_key_pressed(KeyCode::Space) {
-                    squares.clear();
+                    enemies.clear();
                     bullets.clear();
                     explosions.clear();
                     player_engine.config.emitting = true;
@@ -547,13 +624,15 @@ async fn main() {
                 // Draw playing scene
                 draw_playing_scene(
                     &player,
-                    &mut player_sprite,
                     &player_texture,
+                    &mut player_sprite,
                     &mut player_engine,
                     &bullets,
                     &mut bullet_sprite,
                     &bullet_texture,
-                    &squares,
+                    &enemies,
+                    &mut enemy_small_sprite,
+                    &enemy_small_texture,
                     &mut explosions,
                     score,
                     high_score
