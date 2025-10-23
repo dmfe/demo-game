@@ -32,7 +32,7 @@ impl GameObject {
         self.sprite.set_animation(self.animation_num);
         self.sprite.update();
         let frame = self.sprite.frame();
-        let texture = resource_manager.get_resource(&self.texture_id).unwrap();
+        let texture = resource_manager.get_texture(&self.texture_id).unwrap();
         draw_texture_ex(
             texture,
             self.x - self.width / 2.0,

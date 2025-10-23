@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use macroquad::prelude::*;
+use macroquad::audio::{load_sound, Sound};
 
 pub mod constants {
     pub const PLAYER_TEX_ID: &str = "player_texture";
@@ -9,6 +10,10 @@ pub mod constants {
     pub const ENEMY_MEDIUM_TEX_ID: &str = "enemy_medium_texture";
     pub const ENEMY_BIG_TEX_ID: &str = "enemy_big_texture";
     pub const ENEMY_TEXTURES: &[&str] = &[ENEMY_SMALL_TEX_ID, ENEMY_MEDIUM_TEX_ID, ENEMY_BIG_TEX_ID];
+
+    pub const THEME_MUSIC: &str = "theme_music";
+    pub const EXPLOSION_SOUND: &str = "explosion_sound";
+    pub const LASER_SOUND: &str = "laser_sound";
 }
 
 pub mod animations {
@@ -127,18 +132,33 @@ pub mod animations {
 }
 
 pub struct ResourceManager {
-    resources: HashMap<String, Texture2D>
+    textures: HashMap<String, Texture2D>,
+    sounds: HashMap<String, Sound>
 }
 
 impl ResourceManager {
     pub fn new() -> Self {
         ResourceManager {
-            resources: HashMap::new(),
+            textures: HashMap::new(),
+            sounds: HashMap::new(),
         }
     }
 
     pub async fn load_resources(&mut self) {
         set_pc_assets_folder("assets");
+        self.load_textures().await;
+        self.load_sounds().await;
+    }
+
+    pub fn get_texture(&self, id: &str) -> Option<&Texture2D> {
+        self.textures.get(id)
+    }
+
+    pub fn get_sound(&self, id: &str) -> Option<&Sound> {
+        self.sounds.get(id)
+    }
+
+    async fn load_textures(&mut self) {
         let player_texture: Texture2D = load_texture("ship.png")
             .await
             .expect("Couldn't load texture file.");
@@ -165,16 +185,27 @@ impl ResourceManager {
         enemy_big_texture.set_filter(FilterMode::Nearest);
         build_textures_atlas();
 
-        self.resources.insert(constants::PLAYER_TEX_ID.to_string(), player_texture);
-        self.resources.insert(constants::BULLET_TEX_ID.to_string(), bullet_texture);
-        self.resources.insert(constants::EXPLOSION_TEX_ID.to_string(), explosion_texture);
-        self.resources.insert(constants::ENEMY_SMALL_TEX_ID.to_string(), enemy_small_texture);
-        self.resources.insert(constants::ENEMY_MEDIUM_TEX_ID.to_string(), enemy_medium_texture);
-        self.resources.insert(constants::ENEMY_BIG_TEX_ID.to_string(), enemy_big_texture);
+        self.textures.insert(constants::PLAYER_TEX_ID.to_string(), player_texture);
+        self.textures.insert(constants::BULLET_TEX_ID.to_string(), bullet_texture);
+        self.textures.insert(constants::EXPLOSION_TEX_ID.to_string(), explosion_texture);
+        self.textures.insert(constants::ENEMY_SMALL_TEX_ID.to_string(), enemy_small_texture);
+        self.textures.insert(constants::ENEMY_MEDIUM_TEX_ID.to_string(), enemy_medium_texture);
+        self.textures.insert(constants::ENEMY_BIG_TEX_ID.to_string(), enemy_big_texture);
     }
 
-    pub fn get_resource(&self, id: &str) -> Option<&Texture2D> {
-        self.resources.get(id)
-    }
+    async fn load_sounds(&mut self) {
+        let theme_music = load_sound("8bit-spaceshooter.ogg")
+            .await
+            .expect("Couldn't load sound file.");
+        let explosion_sound = load_sound("explosion.wav")
+            .await
+            .expect("Couldn't load sound file.");
+        let laser_sound = load_sound("laser.wav")
+            .await
+            .expect("Couldn't load sound file.");
 
+        self.sounds.insert(constants::THEME_MUSIC.to_string(), theme_music);
+        self.sounds.insert(constants::EXPLOSION_SOUND.to_string(), explosion_sound);
+        self.sounds.insert(constants::LASER_SOUND.to_string(), laser_sound);
+    }
 }

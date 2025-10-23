@@ -4,9 +4,11 @@ use macroquad::rand::ChooseRandom;
 use macroquad_particles::{self as particles, AtlasConfig, ColorCurve, Emitter, EmitterConfig};
 
 mod resource_manager;
+mod sound_manager;
 mod game_object;
 
 use resource_manager::ResourceManager;
+use sound_manager::SoundManager;
 use game_object::GameObject;
 
 const FRAGMENT_SHADER: &str = include_str!("starfield-shader.glsl");
@@ -86,7 +88,7 @@ fn particle_explosion() -> particles::EmitterConfig {
         local_coords: false,
         one_shot: true,
         emitting: true,
-        lifetime: 0.8,
+        lifetime: 1.2,
         lifetime_randomness: 0.3,
         explosiveness: 0.65,
         initial_direction_spread: 2.0 * std::f32::consts::PI,
@@ -132,7 +134,10 @@ async fn main() {
     let mut resource_manager = ResourceManager::new();
     resource_manager.load_resources().await;
     let explosion_texture = resource_manager
-        .get_resource(resource_manager::constants::EXPLOSION_TEX_ID).unwrap();
+        .get_texture(resource_manager::constants::EXPLOSION_TEX_ID).unwrap();
+
+    // Sound Manager initialization
+    let mut sound_manager = SoundManager::new(&resource_manager);
 
     let mut game_state = GameState::MainMenu;
     let mut enemies: Vec<GameObject> = vec![];
@@ -203,6 +208,8 @@ async fn main() {
 
         match game_state {
             GameState::MainMenu => {
+                sound_manager.start_playing(resource_manager::constants::THEME_MUSIC, 0.3);
+
                 if is_key_pressed(KeyCode::Escape) {
                     std::process::exit(0);
                 }
@@ -238,6 +245,9 @@ async fn main() {
                 );
             },
             GameState::Playing => {
+                sound_manager.start_playing(resource_manager::constants::THEME_MUSIC, 0.7);
+                sound_manager.set_volume(resource_manager::constants::THEME_MUSIC, 0.7);
+
                 let delta_time = get_frame_time();
                 player.set_animation_num(0);
 
@@ -289,6 +299,7 @@ async fn main() {
                             sprite: resource_manager::animations::bullet_animation(),
                             animation_num: 1,
                         });
+                        sound_manager.play_once(resource_manager::constants::LASER_SOUND);
                         last_shot_time = current_time;
                     }
                 }
@@ -360,6 +371,7 @@ async fn main() {
                                 }),
                                 vec2(enemy.x, enemy.y)
                             ));
+                            sound_manager.play_once(resource_manager::constants::EXPLOSION_SOUND);
                         }
                     }
                 }
@@ -388,6 +400,8 @@ async fn main() {
                 );
             },
             GameState::Paused => {
+                sound_manager.stop_playing(resource_manager::constants::THEME_MUSIC);
+
                 if is_key_pressed(KeyCode::Space) {
                     game_state = GameState::Playing;
                 }
@@ -418,6 +432,8 @@ async fn main() {
                 );
             },
             GameState::GameOver => {
+                sound_manager.stop_playing(resource_manager::constants::THEME_MUSIC);
+
                 if is_key_pressed(KeyCode::Space) {
                     enemies.clear();
                     bullets.clear();
