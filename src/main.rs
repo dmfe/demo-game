@@ -5,10 +5,12 @@ use macroquad_particles::{self as particles, AtlasConfig, ColorCurve, Emitter, E
 
 mod resource_manager;
 mod sound_manager;
+mod window_manager;
 mod game_object;
 
 use resource_manager::ResourceManager;
 use sound_manager::SoundManager;
+use window_manager::WindowManager;
 use game_object::GameObject;
 
 const FRAGMENT_SHADER: &str = include_str!("starfield-shader.glsl");
@@ -188,6 +190,10 @@ async fn main() {
     )
     .unwrap();
 
+    let mut window_manager = WindowManager::new(&resource_manager);
+    window_manager.configure_ui_skin();
+    let window_size = vec2(370.0, 320.0);
+
     loop {
         clear_background(BLACK);
 
@@ -206,9 +212,40 @@ async fn main() {
         );
         gl_use_default_material();
 
+
         match game_state {
             GameState::MainMenu => {
                 sound_manager.start_playing(resource_manager::constants::THEME_MUSIC, 0.3);
+
+                let window_pos = vec2(
+                    screen_width() / 2.0 - window_size.x / 2.0,
+                    screen_height() / 2.0 - window_size.y / 2.0
+                );
+                window_manager.window(
+                    "main_menu_window",
+                    window_pos,
+                    window_size,
+                    |ui| {
+                        ui.label(vec2(80.0, -34.0), "Main Menu");
+                        if ui.button(vec2(65.0, 25.0), "Play") {
+                            enemies.clear();
+                            bullets.clear();
+                            explosions.clear();
+                            player_engine.config.emitting = true;
+                            player.x = screen_width() / 2.0;
+                            player.y = screen_height() / 2.0;
+                            score = 0;
+                            game_state = GameState::Playing;
+                        }
+                        if ui.button(vec2(65.0, 125.0), "Quit") {
+                            std::process::exit(0);
+                        }
+                    }
+                );
+                window_manager.move_window(
+                    window_manager.get_window_id("main_menu_window").unwrap(),
+                    window_pos
+                );
 
                 if is_key_pressed(KeyCode::Escape) {
                     std::process::exit(0);
@@ -229,18 +266,8 @@ async fn main() {
                 draw_text(
                     title_text,
                     screen_width() / 2.0 - title_text_dimensions.width / 2.0,
-                    200.0,
                     100.0,
-                    WHITE
-                );
-
-                let text = "Press space";
-                let text_dimensions = measure_text(text, None, 50, 1.0);
-                draw_text(
-                    text,
-                    screen_width() / 2.0 - text_dimensions.width / 2.0,
-                    screen_height() / 2.0 - text_dimensions.height / 2.0 + text_dimensions.offset_y,
-                    50.0,
+                    100.0,
                     WHITE
                 );
             },

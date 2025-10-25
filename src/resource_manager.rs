@@ -11,9 +11,15 @@ pub mod constants {
     pub const ENEMY_BIG_TEX_ID: &str = "enemy_big_texture";
     pub const ENEMY_TEXTURES: &[&str] = &[ENEMY_SMALL_TEX_ID, ENEMY_MEDIUM_TEX_ID, ENEMY_BIG_TEX_ID];
 
+    pub const WINDOW_BACKGROUND: &str = "window_background";
+    pub const BUTTON_BACKGROUND: &str = "button_background";
+    pub const BUTTON_PRESSED_BACKGROUND: &str = "button_pressed_background";
+
     pub const THEME_MUSIC: &str = "theme_music";
     pub const EXPLOSION_SOUND: &str = "explosion_sound";
     pub const LASER_SOUND: &str = "laser_sound";
+
+    pub const FONT: &str = "font";
 }
 
 pub mod animations {
@@ -133,29 +139,43 @@ pub mod animations {
 
 pub struct ResourceManager {
     textures: HashMap<String, Texture2D>,
-    sounds: HashMap<String, Sound>
+    images: HashMap<String, Image>,
+    sounds: HashMap<String, Sound>,
+    fonts: HashMap<String, Vec<u8>>,
 }
 
 impl ResourceManager {
     pub fn new() -> Self {
         ResourceManager {
             textures: HashMap::new(),
+            images: HashMap::new(),
             sounds: HashMap::new(),
+            fonts: HashMap::new(),
         }
     }
 
     pub async fn load_resources(&mut self) {
         set_pc_assets_folder("assets");
         self.load_textures().await;
+        self.load_images().await;
         self.load_sounds().await;
+        self.load_fonts().await;
     }
 
     pub fn get_texture(&self, id: &str) -> Option<&Texture2D> {
         self.textures.get(id)
     }
 
+    pub fn get_image(&self, id: &str) -> Option<&Image> {
+        self.images.get(id)
+    }
+
     pub fn get_sound(&self, id: &str) -> Option<&Sound> {
         self.sounds.get(id)
+    }
+
+    pub fn get_font(&self, id: &str) -> Option<&Vec<u8>> {
+        self.fonts.get(id)
     }
 
     async fn load_textures(&mut self) {
@@ -193,6 +213,22 @@ impl ResourceManager {
         self.textures.insert(constants::ENEMY_BIG_TEX_ID.to_string(), enemy_big_texture);
     }
 
+    async fn load_images(&mut self) {
+        let window_background = load_image("window_background.png")
+            .await
+            .expect("Couldn't load image file.");
+        let button_background = load_image("button_background.png")
+            .await
+            .expect("Couldn't load image file.");
+        let button_pressed_background = load_image("button_clicked_background.png")
+            .await
+            .expect("Couldn't load image file.");
+
+        self.images.insert(constants::WINDOW_BACKGROUND.to_string(), window_background);
+        self.images.insert(constants::BUTTON_BACKGROUND.to_string(), button_background);
+        self.images.insert(constants::BUTTON_PRESSED_BACKGROUND.to_string(), button_pressed_background);
+    }
+
     async fn load_sounds(&mut self) {
         let theme_music = load_sound("8bit-spaceshooter.ogg")
             .await
@@ -208,4 +244,13 @@ impl ResourceManager {
         self.sounds.insert(constants::EXPLOSION_SOUND.to_string(), explosion_sound);
         self.sounds.insert(constants::LASER_SOUND.to_string(), laser_sound);
     }
+
+    async fn load_fonts(&mut self) {
+        let font = load_file("atari_games.ttf")
+            .await
+            .expect("Couldn't load file.");
+        self.fonts.insert(constants::FONT.to_string(), font);
+    }
+
 }
+
