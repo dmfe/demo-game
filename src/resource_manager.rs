@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use macroquad::prelude::*;
 use macroquad::audio::{load_sound, Sound};
+use macroquad::experimental::collections::storage;
+use macroquad::experimental::coroutines::{start_coroutine, Coroutine};
 
 pub mod constants {
     pub const PLAYER_TEX_ID: &str = "player_texture";
@@ -154,12 +156,32 @@ impl ResourceManager {
         }
     }
 
-    pub async fn load_resources(&mut self) {
-        set_pc_assets_folder("assets");
-        self.load_textures().await;
-        self.load_images().await;
-        self.load_sounds().await;
-        self.load_fonts().await;
+    pub async fn create_resource_manager() -> Result<(), macroquad::Error> {
+        let resource_loading: Coroutine<Result<(), macroquad::Error>> = start_coroutine(async move {
+            let mut resource_manager = ResourceManager::new();
+            resource_manager.load_resources().await?;
+            storage::store(resource_manager);
+            Ok(())
+        });
+
+        while !resource_loading.is_done() {
+            clear_background(BLACK);
+            let text = format!(
+                "Loading resources {}",
+                ".".repeat(((get_time() * 2.0) as usize) % 4)
+            );
+            draw_text(
+                &text,
+                screen_width() / 2.0 - 160.0,
+                screen_height() / 2.0,
+                40.0,
+                WHITE,
+            );
+            next_frame().await;
+        }
+
+        resource_loading.retrieve().unwrap()?;
+        Ok(())
     }
 
     pub fn get_texture(&self, id: &str) -> Option<&Texture2D> {
@@ -178,30 +200,34 @@ impl ResourceManager {
         self.fonts.get(id)
     }
 
-    async fn load_textures(&mut self) {
+    async fn load_resources(&mut self) -> Result<(), macroquad::Error> {
+        set_pc_assets_folder("assets");
+        self.load_textures().await?;
+        self.load_images().await?;
+        self.load_sounds().await?;
+        self.load_fonts().await?;
+
+        Ok(())
+    }
+
+    async fn load_textures(&mut self) -> Result<(), macroquad::Error> {
         let player_texture: Texture2D = load_texture("ship.png")
-            .await
-            .expect("Couldn't load texture file.");
+            .await?;
         player_texture.set_filter(FilterMode::Nearest);
         let bullet_texture: Texture2D = load_texture("laser-bolts.png")
-            .await
-            .expect("Couldn't load texture file.");
+            .await?;
         bullet_texture.set_filter(FilterMode::Nearest);
         let explosion_texture: Texture2D = load_texture("explosion.png")
-            .await
-            .expect("Couldn't load texture file.");
+            .await?;
         explosion_texture.set_filter(FilterMode::Nearest);
         let enemy_small_texture: Texture2D = load_texture("enemy-small.png")
-            .await
-            .expect("Couldn't load texture file.");
+            .await?;
         enemy_small_texture.set_filter(FilterMode::Nearest);
         let enemy_medium_texture: Texture2D = load_texture("enemy-medium.png")
-            .await
-            .expect("Couldn't load texture file.");
+            .await?;
         enemy_medium_texture.set_filter(FilterMode::Nearest);
         let enemy_big_texture: Texture2D = load_texture("enemy-big.png")
-            .await
-            .expect("Couldn't load texture file.");
+            .await?;
         enemy_big_texture.set_filter(FilterMode::Nearest);
         build_textures_atlas();
 
@@ -211,45 +237,46 @@ impl ResourceManager {
         self.textures.insert(constants::ENEMY_SMALL_TEX_ID.to_string(), enemy_small_texture);
         self.textures.insert(constants::ENEMY_MEDIUM_TEX_ID.to_string(), enemy_medium_texture);
         self.textures.insert(constants::ENEMY_BIG_TEX_ID.to_string(), enemy_big_texture);
+
+        Ok(())
     }
 
-    async fn load_images(&mut self) {
+    async fn load_images(&mut self) -> Result<(), macroquad::Error> {
         let window_background = load_image("window_background.png")
-            .await
-            .expect("Couldn't load image file.");
+            .await?;
         let button_background = load_image("button_background.png")
-            .await
-            .expect("Couldn't load image file.");
+            .await?;
         let button_pressed_background = load_image("button_clicked_background.png")
-            .await
-            .expect("Couldn't load image file.");
+            .await?;
 
         self.images.insert(constants::WINDOW_BACKGROUND.to_string(), window_background);
         self.images.insert(constants::BUTTON_BACKGROUND.to_string(), button_background);
         self.images.insert(constants::BUTTON_PRESSED_BACKGROUND.to_string(), button_pressed_background);
+
+        Ok(())
     }
 
-    async fn load_sounds(&mut self) {
+    async fn load_sounds(&mut self) -> Result<(), macroquad::Error> {
         let theme_music = load_sound("8bit-spaceshooter.ogg")
-            .await
-            .expect("Couldn't load sound file.");
+            .await?;
         let explosion_sound = load_sound("explosion.wav")
-            .await
-            .expect("Couldn't load sound file.");
+            .await?;
         let laser_sound = load_sound("laser.wav")
-            .await
-            .expect("Couldn't load sound file.");
+            .await?;
 
         self.sounds.insert(constants::THEME_MUSIC.to_string(), theme_music);
         self.sounds.insert(constants::EXPLOSION_SOUND.to_string(), explosion_sound);
         self.sounds.insert(constants::LASER_SOUND.to_string(), laser_sound);
+
+        Ok(())
     }
 
-    async fn load_fonts(&mut self) {
+    async fn load_fonts(&mut self) -> Result<(), macroquad::Error> {
         let font = load_file("atari_games.ttf")
-            .await
-            .expect("Couldn't load file.");
+            .await?;
         self.fonts.insert(constants::FONT.to_string(), font);
+
+        Ok(())
     }
 
 }

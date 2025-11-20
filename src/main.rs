@@ -2,6 +2,7 @@ use std::fs;
 use macroquad::prelude::*;
 use macroquad::rand::ChooseRandom;
 use macroquad_particles::{self as particles, AtlasConfig, ColorCurve, Emitter, EmitterConfig};
+use macroquad::experimental::collections::storage;
 
 mod resource_manager;
 mod sound_manager;
@@ -127,14 +128,15 @@ fn particle_engine() -> particles::EmitterConfig {
 }
 
 #[macroquad::main("Space Warior")]
-async fn main() {
+async fn main() -> Result<(), macroquad::Error> {
     const MOVEMENT_SPEED: f32 = 200.0;
     const RELOAD_TIME_SECONDS: f64 = 0.1;
     const SIDE_ANIMATION_SWITCH_SECONDS: f64 = 0.5;
 
     // Resources initialization
-    let mut resource_manager = ResourceManager::new();
-    resource_manager.load_resources().await;
+    ResourceManager::create_resource_manager().await?;
+    let resource_manager = storage::get::<ResourceManager>();
+
     let explosion_texture = resource_manager
         .get_texture(resource_manager::constants::EXPLOSION_TEX_ID).unwrap();
 
@@ -187,8 +189,7 @@ async fn main() {
             ],
             ..Default::default()
         }
-    )
-    .unwrap();
+    )?;
 
     let mut window_manager = WindowManager::new(&resource_manager);
     window_manager.configure_ui_skin();
